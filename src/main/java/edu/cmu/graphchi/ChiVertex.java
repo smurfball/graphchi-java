@@ -94,6 +94,7 @@ public class ChiVertex<VertexValue, EdgeValue> {
         this.id = id;
 
         if (degree != null) {
+	    //	    System.out.println("NICKNICK " + degree.inDegree + " " + degree.outDegree);
             if (!disableInedges) {
                 inEdgeDataArray = new int[degree.inDegree * (edgeValueConverter != null ? 3 : 1)];
             } else {
@@ -305,6 +306,42 @@ public class ChiVertex<VertexValue, EdgeValue> {
         int idx = i * 3;
         return blockManager.dereference(new ChiPointer(outEdgeDataArray[idx], outEdgeDataArray[idx + 1]),
                 (BytesToValueConverter<EdgeValue>) edgeValueConverter);
+    }
+
+    /* nmmtune4 */
+    public float getInEdgeSum() {
+	edu.cmu.graphchi.datablocks.FloatConverter conv = (edu.cmu.graphchi.datablocks.FloatConverter) edgeValueConverter;
+	ChiPointer p = new ChiPointer(0, 0);
+	float sum = 0;
+	for(int i=0; i<numInEdges(); i++) {
+	    int idx = i * 3;
+	    p.blockId = inEdgeDataArray[idx];
+	    p.offset = inEdgeDataArray[idx + 1];
+	    sum += (Float) blockManager.dereference(p, conv);
+	}
+        return sum;
+    }
+    /* nmmtune3 */
+    public EdgeValue getInEdgeValue(int i) {
+        int idx = i * 3;
+        return blockManager.dereference(new ChiPointer(inEdgeDataArray[idx], inEdgeDataArray[idx + 1]),
+                (BytesToValueConverter<EdgeValue>) edgeValueConverter);
+    }
+    /* nmmtune3 */
+    public void setAllOutEdgeValues(EdgeValue value) {
+	BytesToValueConverter<EdgeValue> conv = (BytesToValueConverter<EdgeValue>) edgeValueConverter;
+	ChiPointer p = new ChiPointer(0, 0);
+	for(int i=0; i<numOutEdges(); i++) {
+	    int idx = i * 3;
+	    p.blockId = outEdgeDataArray[idx];
+	    p.offset = outEdgeDataArray[idx + 1];
+	    blockManager.writeValue(p, conv, value);
+	}
+    }
+    public void setOutEdgeValue(int i, EdgeValue value) {
+        int idx = i * 3;
+	blockManager.writeValue(new ChiPointer(outEdgeDataArray[idx], outEdgeDataArray[idx + 1]), 
+				(BytesToValueConverter<EdgeValue>) edgeValueConverter, value);
     }
 
 

@@ -29,11 +29,23 @@ public class IntConverter implements  BytesToValueConverter<Integer> {
         return ((array[3]  & 0xff) << 24) + ((array[2] & 0xff) << 16) + ((array[1] & 0xff) << 8) + (array[0] & 0xff);
     }
 
+    public Integer getValue(byte[] array, int offset) {
+        return ((array[offset + 3]  & 0xff) << 24) + ((array[offset + 2] & 0xff) << 16) + ((array[offset + 1] & 0xff) << 8) + (array[offset + 0] & 0xff);
+    }
+
     public void setValue(byte[] array, Integer x) {
         array[0] = (byte) ((x) & 0xff);
         array[1] = (byte) ((x >>> 8) & 0xff);
         array[2] = (byte) ((x >>> 16) & 0xff);
         array[3] = (byte) ((x >>> 24) & 0xff);
+
+    }
+
+    public void setValue(byte[] array, int offset, Integer x) {
+        array[offset + 0] = (byte) ((x) & 0xff);
+        array[offset + 1] = (byte) ((x >>> 8) & 0xff);
+        array[offset + 2] = (byte) ((x >>> 16) & 0xff);
+        array[offset + 3] = (byte) ((x >>> 24) & 0xff);
 
     }
 }

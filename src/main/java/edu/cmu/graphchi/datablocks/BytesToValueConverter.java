@@ -33,5 +33,8 @@ public interface BytesToValueConverter<T> {
     public T getValue(byte[] array);
 
     public void setValue(byte[] array, T val);
+
+    public T getValue(byte[] array, int offset);
+    public void setValue(byte[] array, int offset, T val);
 }
 

@@ -17,6 +17,12 @@ public class FloatPairConverter implements  BytesToValueConverter<FloatPair> {
         return new FloatPair(Float.intBitsToFloat(x), Float.intBitsToFloat(y));
     }
 
+    public FloatPair getValue(byte[] array, int offset) {
+        int x = ((array[offset + 3]  & 0xff) << 24) + ((array[offset + 2] & 0xff) << 16) + ((array[offset + 1] & 0xff) << 8) + (array[offset + 0] & 0xff);
+        int y = ((array[offset + 7]  & 0xff) << 24) + ((array[offset + 6] & 0xff) << 16) + ((array[offset + 5] & 0xff) << 8) + (array[offset + 4] & 0xff);
+        return new FloatPair(Float.intBitsToFloat(x), Float.intBitsToFloat(y));
+    }
+
     public void setValue(byte[] array, FloatPair val) {
         int x = Float.floatToIntBits(val.first);
         array[3] = (byte) ((x >>> 24) & 0xff);
@@ -28,5 +34,18 @@ public class FloatPairConverter implements  BytesToValueConverter<FloatPair> {
         array[6] = (byte) ((y >>> 16) & 0xff);
         array[5] = (byte) ((y >>> 8) & 0xff);
         array[4] = (byte) ((y >>> 0) & 0xff);
+    }
+
+    public void setValue(byte[] array, int offset, FloatPair val) {
+        int x = Float.floatToIntBits(val.first);
+        array[offset + 3] = (byte) ((x >>> 24) & 0xff);
+        array[offset + 2] = (byte) ((x >>> 16) & 0xff);
+        array[offset + 1] = (byte) ((x >>> 8) & 0xff);
+        array[offset + 0] = (byte) ((x >>> 0) & 0xff);
+        int y = Float.floatToIntBits(val.second);
+        array[offset + 7] = (byte) ((y >>> 24) & 0xff);
+        array[offset + 6] = (byte) ((y >>> 16) & 0xff);
+        array[offset + 5] = (byte) ((y >>> 8) & 0xff);
+        array[offset + 4] = (byte) ((y >>> 0) & 0xff);
     }
 }

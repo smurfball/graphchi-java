@@ -585,7 +585,16 @@ public class FastSharder <VertexValueType, EdgeValueType> {
                 }
 
                 @Override
+                public Object getValue(byte[] array, int offset) {
+                    return null;
+                }
+
+                @Override
                 public void setValue(byte[] array, Object val) {
+                }
+
+                @Override
+                public void setValue(byte[] array, int offset, Object val) {
                 }
             }, shardNum, numShards);
             File edgeDataSizeFile = new File(edataFileName + ".size");

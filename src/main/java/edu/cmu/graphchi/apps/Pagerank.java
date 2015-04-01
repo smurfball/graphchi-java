@@ -25,6 +25,8 @@ import java.util.logging.Logger;
  * @author akyrola
  */
 public class Pagerank implements GraphChiProgram<Float, Float> {
+    private static boolean NMMTUNE4 = System.getProperty("NMMTUNE4") != null;
+    private static boolean NMMTUNE3 = System.getProperty("NMMTUNE3") != null;
 
     private static Logger logger = ChiLogger.getLogger("pagerank");
 
@@ -37,17 +39,29 @@ public class Pagerank implements GraphChiProgram<Float, Float> {
                average of my in-coming neighbors pageranks.
              */
             float sum = 0.f;
+	    if (NMMTUNE4) {
+		sum = vertex.getInEdgeSum();
+	    } else if (NMMTUNE3) {
             for(int i=0; i<vertex.numInEdges(); i++) {
-                sum += vertex.inEdge(i).getValue();
+		sum += vertex.getInEdgeValue(i);
             }
+	    } else {
+            for(int i=0; i<vertex.numInEdges(); i++) {
+		sum += vertex.inEdge(i).getValue();
+            }
+	    }
             vertex.setValue(0.15f + 0.85f * sum);
         }
 
         /* Write my value (divided by my out-degree) to my out-edges so neighbors can read it. */
         float outValue = vertex.getValue() / vertex.numOutEdges();
+	if (NMMTUNE3) {
+	    vertex.setAllOutEdgeValues(outValue);
+	} else {
         for(int i=0; i<vertex.numOutEdges(); i++) {
             vertex.outEdge(i).setValue(outValue);
-        }
+	}
+	}
 
     }
 

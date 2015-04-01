@@ -36,6 +36,17 @@ public class LongConverter implements  BytesToValueConverter<Long> {
                 ((long)array[7] & 0xff);
     }
 
+    public Long getValue(byte[] array, int offset) {
+        return  ((long)(array[offset + 0]  & 0xff) << 56) +
+                ((long)(array[offset + 1]  & 0xff) << 48) +
+                ((long)(array[offset + 2] & 0xff) << 40) +
+                ((long)(array[offset + 3] & 0xff) << 32) +
+                ((long)(array[offset + 4]  & 0xff) << 24) +
+                ((long)(array[offset + 5] & 0xff) << 16) +
+                ((long)(array[offset + 6] & 0xff) << 8) +
+                ((long)array[offset + 7] & 0xff);
+    }
+
     public void setValue(byte[] array, Long x) {
         array[0] = (byte) ((x >>> 56) & 0xff);
         array[1] = (byte) ((x >>> 48) & 0xff);
@@ -45,5 +56,16 @@ public class LongConverter implements  BytesToValueConverter<Long> {
         array[5] = (byte) ((x >>> 16) & 0xff);
         array[6] = (byte) ((x >>> 8) & 0xff);
         array[7] = (byte) ((x) & 0xff);
+    }
+
+    public void setValue(byte[] array, int offset, Long x) {
+        array[offset + 0] = (byte) ((x >>> 56) & 0xff);
+        array[offset + 1] = (byte) ((x >>> 48) & 0xff);
+        array[offset + 2] = (byte) ((x >>> 40) & 0xff);
+        array[offset + 3] = (byte) ((x >>> 32) & 0xff);
+        array[offset + 4] = (byte) ((x >>> 24) & 0xff);
+        array[offset + 5] = (byte) ((x >>> 16) & 0xff);
+        array[offset + 6] = (byte) ((x >>> 8) & 0xff);
+        array[offset + 7] = (byte) ((x) & 0xff);
     }
 }

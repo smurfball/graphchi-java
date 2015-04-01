@@ -30,11 +30,24 @@ public class FloatConverter implements  BytesToValueConverter<Float> {
         return Float.intBitsToFloat(x);
     }
 
+    public Float getValue(byte[] array, int offset) {
+        int x = ((array[offset + 3]  & 0xff) << 24) + ((array[offset + 2] & 0xff) << 16) + ((array[offset + 1] & 0xff) << 8) + (array[offset + 0] & 0xff);
+        return Float.intBitsToFloat(x);
+    }
+
     public void setValue(byte[] array, Float val) {
         int x = Float.floatToIntBits(val);
         array[3] = (byte) ((x >>> 24) & 0xff);
         array[2] = (byte) ((x >>> 16) & 0xff);
         array[1] = (byte) ((x >>> 8) & 0xff);
         array[0] = (byte) ((x >>> 0) & 0xff);
+    }
+
+    public void setValue(byte[] array, int offset, Float val) {
+        int x = Float.floatToIntBits(val);
+        array[offset + 3] = (byte) ((x >>> 24) & 0xff);
+        array[offset + 2] = (byte) ((x >>> 16) & 0xff);
+        array[offset + 1] = (byte) ((x >>> 8) & 0xff);
+        array[offset + 0] = (byte) ((x >>> 0) & 0xff);
     }
 }

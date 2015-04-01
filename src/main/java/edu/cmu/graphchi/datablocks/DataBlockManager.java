@@ -78,20 +78,22 @@ public class DataBlockManager {
     }
 
     public <T> T dereference(ChiPointer ptr, BytesToValueConverter<T> conv) {
-        byte[] arr = new byte[conv.sizeOf()];
+        /*byte[] arr = new byte[conv.sizeOf()];
 
         if (ptr == null) {
             throw new IllegalStateException("Tried to dereference a null pointer!");
         }
 
         System.arraycopy(getRawBlock(ptr.blockId), ptr.offset, arr, 0, arr.length);
-        return conv.getValue(arr);
+        return conv.getValue(arr);*/
+	return conv.getValue(getRawBlock(ptr.blockId), ptr.offset);
     }
 
     public <T> void writeValue(ChiPointer ptr, BytesToValueConverter<T> conv, T value) {
-        byte[] arr = new byte[conv.sizeOf()];
+        /*byte[] arr = new byte[conv.sizeOf()];
         conv.setValue(arr, value);
-        System.arraycopy(arr, 0, getRawBlock(ptr.blockId), ptr.offset, arr.length);
+        System.arraycopy(arr, 0, getRawBlock(ptr.blockId), ptr.offset, arr.length);*/
+	conv.setValue(getRawBlock(ptr.blockId), ptr.offset, value);
     }
 
     public <T> void writeValue(ChiPointer ptr, byte[] data) {
