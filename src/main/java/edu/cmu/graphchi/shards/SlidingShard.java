@@ -57,7 +57,8 @@ public class SlidingShard <EdgeDataType> {
     private boolean asyncEdataLoading = true;
 
     private BytesToValueConverter<EdgeDataType> converter;
-    private BufferedDataInputStream adjFile;
+    //private BufferedDataInputStream adjFile2;
+    private java.nio.MappedByteBuffer adjFile;
     private boolean modifiesOutedges = true;
     
     private static final Logger logger = ChiLogger.getLogger("slidingshard");
@@ -115,7 +116,7 @@ public class SlidingShard <EdgeDataType> {
     public void skip(int n) throws IOException {
         int tot = n * 4;
         adjOffset += tot;
-        adjFile.skipBytes(tot);
+        //adjFile2.skipBytes(tot);
         edataOffset += sizeOf * n;
         if (curBlock != null) {
             curBlock.ptr += sizeOf * n;
@@ -135,30 +136,44 @@ public class SlidingShard <EdgeDataType> {
 
         if (adjFile == null) {
 
-            File compressedFile = new File(adjDataFilename + ".gz");
+	    /*File compressedFile = new File(adjDataFilename + ".gz");
             if (compressedFile.exists()) {
                 logger.info("Note: using compressed: " + compressedFile.getName());
-                adjFile = new BufferedDataInputStream(new GZIPInputStream(new FileInputStream(compressedFile)), 1024 * 1024);
+                adjFile2 = new BufferedDataInputStream(new GZIPInputStream(new FileInputStream(compressedFile)), 1024 * 1024);
 
             } else {
-                adjFile = new BufferedDataInputStream(new FileInputStream(adjDataFilename), 1024 * 1024);
+                adjFile2 = new BufferedDataInputStream(new FileInputStream(adjDataFilename), 1024 * 1024);
             }
-            adjFile.skipBytes(adjOffset);
+            adjFile2.skipBytes(adjOffset);*/
+
+	    adjFile = new RandomAccessFile(adjDataFilename, "r").getChannel().map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0, adjFilesize);
+	    adjFile.order(java.nio.ByteOrder.LITTLE_ENDIAN);
         }
+	//adjFile.position(adjOffset);
 
 
         try {
             for(int i=(curvid - start); i < nvecs; i++) {
                 int n;
-                int ns = adjFile.readUnsignedByte();
+		//int ns2 = adjFile2.readUnsignedByte();
+                int ns;
+		try {
+		    ns = adjFile.get(adjOffset);
+		} catch (Exception e) { break; /*System.err.println("CRAP " + i + " " + adjOffset + " " + adjFile.limit() + " " + adjFilesize); return;*/ }
+		if (ns < 0) ns = 256 + ns;
 
+		//if (ns != ns2) System.err.println("OOPS " + ns2 + " " + ns + " " + (ns2==ns));
 
                 assert(ns >= 0);
                 adjOffset++;
 
                 if (ns == 0) {
                     curvid++;
-                    int nz = adjFile.readUnsignedByte();
+		    //int nz2 = adjFile2.readUnsignedByte();
+                    int nz = adjFile.get(adjOffset);
+		    if (nz < 0) nz = 256 + nz;
+
+		    //if (nz != nz2) System.err.println("OOPS2 " + nz2 + " " + nz + " " + (nz2 == nz));
 
                     adjOffset++;
                     assert(nz >= 0);
@@ -168,7 +183,9 @@ public class SlidingShard <EdgeDataType> {
                 }
 
                 if (ns == 0xff) {
-                    n = adjFile.readIntReversed();
+		    //int n2 = adjFile2.readIntReversed();
+                    n = adjFile.getInt(adjOffset);
+		    //if (n2 != n) System.err.println("OOPS3 " + n2 + " " + n + " " + (n2==n));
                     adjOffset += 4;
                 } else {
                     n = ns;
@@ -182,7 +199,9 @@ public class SlidingShard <EdgeDataType> {
 
                     if (vertex != null) {
                         while (--n >= 0) {
-                            int target = adjFile.readIntReversed();
+			    //int target2 = adjFile2.readIntReversed();
+                            int target = adjFile.getInt(adjOffset);
+			    //if (target2 != target) System.err.println("OOPS4 " + target2 + " " + target + " " + (target2==target));
                             adjOffset += 4;
                             ChiPointer eptr = readEdgePtr();
 
@@ -216,9 +235,9 @@ public class SlidingShard <EdgeDataType> {
     }
 
     public void setOffset(int newoff, int _curvid, int edgeptr) {
-        try {
-           if (adjFile != null) adjFile.close();
-        } catch (IOException ioe) {}
+        //try {
+	    //if (adjFile != null) adjFile.close();
+        //} catch (IOException ioe) {}
         adjFile = null;
         adjOffset = newoff;
         curvid = _curvid;

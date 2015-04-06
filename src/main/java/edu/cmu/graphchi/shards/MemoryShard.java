@@ -47,7 +47,8 @@ public class MemoryShard <EdgeDataType> {
     private int rangeStart;
     private int rangeEnd;
 
-    private byte[] adjData;
+    private byte[] adjData2;
+    private java.nio.MappedByteBuffer adjData;
     private int[] blockIds = new int[0];
     private int[] blockSizes = new int[0];;
 
@@ -186,6 +187,7 @@ public class MemoryShard <EdgeDataType> {
     }
 
     private void loadAdjChunk(int windowStart, int windowEnd, ChiVertex[] vertices, boolean disableOutEdges, DataInput compressedInput, int sizeOf, int chunk) throws IOException {
+
         ShardIndex.IndexEntry indexEntry = index.get(chunk);
 
         int vid = indexEntry.vertex;
@@ -200,9 +202,12 @@ public class MemoryShard <EdgeDataType> {
         boolean containsRangeEnd = (vid < rangeEnd && viden > rangeEnd);
         boolean containsRangeSt = (vid <= rangeStart && viden > rangeStart);
 
-        DataInput adjInput = (compressedInput != null ? compressedInput : new DataInputStream(new ByteArrayInputStream(adjData)));
+        //DataInput adjInput2 = (compressedInput != null ? compressedInput : new DataInputStream(new ByteArrayInputStream(adjData2)));
+        //adjInput2.skipBytes(adjOffset);
 
-        adjInput.skipBytes(adjOffset);
+	java.nio.ByteBuffer adjInput = adjData.duplicate();
+	adjInput.position(adjOffset);
+
 
         try {
             while(adjOffset < end) {
@@ -224,19 +229,27 @@ public class MemoryShard <EdgeDataType> {
                 }
 
                 int n = 0;
-                int ns = adjInput.readUnsignedByte();
+                int ns = adjInput.get();
+		if (ns < 0) ns = 256 + ns;
+		//int ns2 = adjInput2.readUnsignedByte();
+		//if (ns != ns2) System.err.println("NOPE1 " + ns + " " + ns2);
                 adjOffset += 1;
                 assert(ns >= 0);
                 if (ns == 0) {
                     // next value tells the number of vertices with zeros
                     vid++;
-                    int nz = adjInput.readUnsignedByte();
+                    int nz = adjInput.get();
+		    if (nz < 0) nz = 256 + nz;
+		    //int nz2 = adjInput2.readUnsignedByte();
+		    //if (nz != nz2) System.err.println("NOPE2 " + nz + " " + nz2);
                     adjOffset += 1;
                     vid += nz;
                     continue;
                 }
                 if (ns == 0xff) {   // If 255 is not enough, then stores a 32-bit integer after.
-                    n = Integer.reverseBytes(adjInput.readInt());
+                    n = Integer.reverseBytes(adjInput.getInt());
+		    //int n2 = Integer.reverseBytes(adjInput2.readInt());
+		    //if (n != n2) System.err.println("NOPE3 " + n + " " + n2);
                     adjOffset += 4;
                 } else {
                     n = ns;
@@ -248,7 +261,10 @@ public class MemoryShard <EdgeDataType> {
                 }
 
                 while (--n >= 0) {
-                    int target = Integer.reverseBytes(adjInput.readInt());
+                    int target = Integer.reverseBytes(adjInput.getInt());
+		    //int target2 = Integer.reverseBytes(adjInput2.readInt());
+		    //if (target != target2) System.err.println("NOPE4 " + target + " " + target2);
+
                     adjOffset += 4;
                     if (!(target >= rangeStart && target <= rangeEnd))
                         throw new IllegalStateException("Target " + target + " not in range!");
@@ -276,16 +292,32 @@ public class MemoryShard <EdgeDataType> {
                 }
                 vid++;
             }
-        } catch (EOFException eof) {
+        } catch (/*EOF*/Exception eof) {
             return;
         }
-        if (adjInput instanceof InputStream) {
+        /*if (adjInput instanceof InputStream) {
             ((InputStream) adjInput).close();
-        }
+	    }*/
     }
 
-
     private DataInput loadAdj() throws FileNotFoundException, IOException {
+        // Hack for cases when the load is not divided into subwindows
+        TimerContext _timer = loadAdjTimer.time();
+
+        index = new ShardIndex(new File(adjDataFilename)).sparserIndex(1204 * 1024);
+
+	java.io.RandomAccessFile file = new java.io.RandomAccessFile(adjDataFilename, "r");
+	adjDataLength = (int) file.length(); // fixme downcast
+	adjData = file.getChannel().map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0, adjDataLength);
+	//adjData.order(java.nio.ByteOrder.LITTLE_ENDIAN);
+
+	_timer.stop();
+
+	//return loadAdj2();
+	return null;
+    }
+
+    private DataInput loadAdj2() throws FileNotFoundException, IOException {
         File compressedFile = new File(adjDataFilename + ".gz");
         InputStream adjStreamRaw;
         long fileSizeEstimate = 0;
@@ -319,8 +351,8 @@ public class MemoryShard <EdgeDataType> {
             // Done
         }
 
-        adjData = adjDataStream.toByteArray();
-        adjDataLength = adjData.length;
+        adjData2 = adjDataStream.toByteArray();
+        adjDataLength = adjData2.length;
 
         adjStream.close();
         adjDataStream.close();
