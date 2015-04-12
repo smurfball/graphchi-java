@@ -112,7 +112,8 @@ public class Pagerank implements GraphChiProgram<Float, Float> {
             sharder.shard(System.in, fileType);
         } else {
             if (!new File(ChiFilenames.getFilenameIntervals(baseFilename, nShards)).exists()) {
-                sharder.shard(new FileInputStream(new File(baseFilename)), fileType);
+                //sharder.shard(new FileInputStream(new File(baseFilename)), fileType);
+		sharder.shard(baseFilename, fileType);
             } else {
                 logger.info("Found shards -- no need to preprocess");
             }

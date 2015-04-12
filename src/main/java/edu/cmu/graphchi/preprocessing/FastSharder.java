@@ -50,7 +50,7 @@ import java.util.zip.DeflaterOutputStream;
  *
  * @author Aapo Kyrola
  */
-public class FastSharder <VertexValueType, EdgeValueType> {
+public class FastSharder <VertexValueType, EdgeValueType> implements EdgeHandler {
 
     public enum GraphInputFormat {EDGELIST, ADJACENCY, MATRIXMARKET};
 
@@ -106,6 +106,13 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         this.edgeValueTypeBytesToValueConverter = edgeValConverter;
         this.vertexValueTypeBytesToValueConverter = vertexValConterter;
 
+	// NMM
+	shovelLocks = new java.util.concurrent.locks.ReentrantLock[numShards];
+	for (int i = 0; i < numShards; i++) {
+	    shovelLocks[i] = new java.util.concurrent.locks.ReentrantLock();
+	}
+	// NMM
+
         /**
          * In the first phase of processing, the edges are "shoveled" to
          * the corresponding shards. The interim shards are called "shovel-files",
@@ -142,6 +149,25 @@ public class FastSharder <VertexValueType, EdgeValueType> {
     }
 
 
+    private final java.util.concurrent.locks.Lock maxLock = new java.util.concurrent.locks.ReentrantLock();
+    private final java.util.concurrent.locks.Lock shovelLocks[];
+    public void addEdges(int[] edges, int nEdges) throws IOException {
+	int myMax = Integer.MIN_VALUE;
+	for (int i = 0; i < nEdges; i+= 2) {
+	    if (myMax < edges[i]) myMax = edges[i];
+	    if (myMax < edges[i + 1]) myMax = edges[i + 1];
+	    
+	    _addEdge(edges[i], edges[i + 1], null);
+	}
+	
+	maxLock.lock();
+	try {
+	    if (maxVertexId < myMax) maxVertexId = myMax;
+	} finally {
+	    maxLock.unlock();
+	}
+    }
+
     /**
      * Adds an edge to the preprocessing.
      * @param from
@@ -153,6 +179,9 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         if (maxVertexId < from) maxVertexId = from;
         if (maxVertexId < to)  maxVertexId = to;
 
+	_addEdge(from, to, edgeValueToken);
+    }
+    public void _addEdge(int from, int to, String edgeValueToken) throws IOException {
         /* If the from and to ids are same, this entry is assumed to contain value
            for the vertex, and it is passed to the vertexProcessor.
          */
@@ -169,8 +198,14 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         int preTranslatedIdFrom = preIdTranslate.forward(from);
         int preTranslatedTo = preIdTranslate.forward(to);
 
-        addToShovel(to % numShards, preTranslatedIdFrom, preTranslatedTo,
+	int shard = to % numShards;
+	shovelLocks[shard].lock();
+	try {
+        addToShovel(shard, preTranslatedIdFrom, preTranslatedTo,
                 (edgeProcessor != null ? edgeProcessor.receiveEdge(from, to, edgeValueToken) : null));
+	} finally {
+	    shovelLocks[shard].unlock();
+	}
     }
 
 
@@ -680,6 +715,16 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         quickSort(shoveled, edgeValues, sizeOf, 0, shoveled.length - 1);
     }
 
+
+    public void shard(String filename, String format) throws Exception {
+        if (format == null || format.equals("edgelist")) {
+	    new MMapReader().readWithMmap(new RandomAccessFile(filename, "r"), this);
+	    this.process();
+
+	} else {
+	    shard(new FileInputStream(new File(baseFilename)), format);
+	}
+    }
 
     /**
      * Execute sharding by reading edges from a inputstream
