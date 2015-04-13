@@ -150,15 +150,17 @@ public class FastSharder <VertexValueType, EdgeValueType> implements EdgeHandler
 
 
     private final java.util.concurrent.locks.Lock maxLock = new java.util.concurrent.locks.ReentrantLock();
+    private final java.util.concurrent.locks.Lock inDegreesLock = new java.util.concurrent.locks.ReentrantLock();
+    private final java.util.concurrent.locks.Lock outDegreesLock = new java.util.concurrent.locks.ReentrantLock();
     private final java.util.concurrent.locks.Lock shovelLocks[];
-    public void addEdges(int[] edges, int nEdges) throws IOException {
+    public void addEdges(int[] edges, int nEdges, int shard) throws IOException {
 	int myMax = Integer.MIN_VALUE;
+
 	for (int i = 0; i < nEdges; i+= 2) {
 	    if (myMax < edges[i]) myMax = edges[i];
 	    if (myMax < edges[i + 1]) myMax = edges[i + 1];
-	    
-	    _addEdge(edges[i], edges[i + 1], null);
 	}
+	_addEdges(edges, nEdges, shard);
 	
 	maxLock.lock();
 	try {
@@ -203,6 +205,37 @@ public class FastSharder <VertexValueType, EdgeValueType> implements EdgeHandler
 	try {
         addToShovel(shard, preTranslatedIdFrom, preTranslatedTo,
                 (edgeProcessor != null ? edgeProcessor.receiveEdge(from, to, edgeValueToken) : null));
+	} finally {
+	    shovelLocks[shard].unlock();
+	}
+    }
+
+    public void _addEdges(int[] edgesForShard, int nEdges, int shard) throws IOException {
+        /* If the from and to ids are same, this entry is assumed to contain value
+           for the vertex, and it is passed to the vertexProcessor.
+         */
+
+	shovelLocks[shard].lock();
+	try {
+	    for (int i = 0; i < nEdges; i += 2) {
+		int from = edgesForShard[i];
+		int to = edgesForShard[i + 1];
+
+        if (from == to) {
+            /*if (vertexProcessor != null && edgeValueToken != null) {
+                VertexValueType value = vertexProcessor.receiveVertexValue(from, edgeValueToken);
+                if (value != null) {
+                    addVertexValue(from % numShards, preIdTranslate.forward(from), value);
+                }
+		}*/
+            return;
+        }
+        int preTranslatedIdFrom = preIdTranslate.forward(from);
+        int preTranslatedTo = preIdTranslate.forward(to);
+
+        addToShovel(shard, preTranslatedIdFrom, preTranslatedTo,
+		    (edgeProcessor != null ? edgeProcessor.receiveEdge(from, to, null/*edgeValueToken*/) : null));
+	    }
 	} finally {
 	    shovelLocks[shard].unlock();
 	}
@@ -331,9 +364,40 @@ public class FastSharder <VertexValueType, EdgeValueType> implements EdgeHandler
         /**
          * Process each shovel to create a final shard.
          */
+	final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(numShards);
+	final ExecutorService executor = Executors.newFixedThreadPool(Math.min(8, Runtime.getRuntime().availableProcessors()));
+	final ThreadLocal<int[]> my_inDegrees_tl = new ThreadLocal<int[]>();
+	final ThreadLocal<int[]> my_outDegrees_tl = new ThreadLocal<int[]>();
+
         for(int i=0; i<numShards; i++) {
-            processShovel(i);
+	    final int shard = i;
+            executor.submit(new java.util.concurrent.Callable<Boolean>() {
+		    public Boolean call() {
+			try {
+			    while (true) {
+				try {
+				    processShovel(shard, my_inDegrees_tl, my_outDegrees_tl);
+				    return true;
+
+				} catch (java.lang.OutOfMemoryError e) {
+				    // retry
+
+				} catch (Throwable e) {
+				    e.printStackTrace();
+				    return false;
+				}
+			    }
+			} finally {
+			    latch.countDown();
+			}
+		    }
+		});
         }
+	try {
+	    latch.await();
+	    executor.shutdownNow();
+	} catch (InterruptedException e) {
+	}
 
         /**
          * If we have more vertices than edges, it makes sense to use sparse representation
@@ -480,7 +544,7 @@ public class FastSharder <VertexValueType, EdgeValueType> implements EdgeHandler
      * @param shardNum
      * @throws IOException
      */
-    private void processShovel(int shardNum) throws IOException {
+    private void processShovel(int shardNum, ThreadLocal<int[]> my_inDegrees_tl, ThreadLocal<int[]> my_outDegrees_tl) throws IOException {
         File shovelFile = new File(shovelFilename(shardNum));
         int sizeOf = (edgeValueTypeBytesToValueConverter != null ? edgeValueTypeBytesToValueConverter.sizeOf() : 0);
 
@@ -494,6 +558,21 @@ public class FastSharder <VertexValueType, EdgeValueType> implements EdgeHandler
 
 
         logger.info("Processing shovel " + shardNum);
+
+	int[] my_inDegrees = my_inDegrees_tl.get();
+	if (my_inDegrees == null) {
+	    my_inDegrees = new int[inDegrees.length];
+	    my_inDegrees_tl.set(my_inDegrees);
+	} else {
+	    java.util.Arrays.fill(my_inDegrees, 0);
+	}
+	int[] my_outDegrees = new int[outDegrees.length];
+	if (my_outDegrees == null) {
+	    my_outDegrees = new int[outDegrees.length];
+	    my_outDegrees_tl.set(my_outDegrees);
+	} else {
+	    java.util.Arrays.fill(my_outDegrees, 0);
+	}
 
         /**
          * Read the edges into memory.
@@ -513,8 +592,8 @@ public class FastSharder <VertexValueType, EdgeValueType> implements EdgeHandler
             int valueIdx = i * sizeOf;
             System.arraycopy(valueTemplate, 0, edgeValues, valueIdx, sizeOf);
             if (!memoryEfficientDegreeCount) {
-                inDegrees[newTo]++;
-                outDegrees[newFrom]++;
+                my_inDegrees[newTo]++;
+                my_outDegrees[newFrom]++;
             }
         }
         numEdges += shoveled.length;
@@ -523,6 +602,23 @@ public class FastSharder <VertexValueType, EdgeValueType> implements EdgeHandler
 
         /* Delete the shovel-file */
         shovelFile.delete();
+
+	inDegreesLock.lock();
+	try {
+	    for (int i = 0; i < my_inDegrees.length; i++) {
+		inDegrees[i] += my_inDegrees[i];
+	    }
+	} finally {
+	    inDegreesLock.unlock();
+	}
+	outDegreesLock.lock();
+	try {
+	    for (int i = 0; i < my_outDegrees.length; i++) {
+		outDegrees[i] += my_outDegrees[i];
+	    }
+	} finally {
+	    outDegreesLock.unlock();
+	}
 
         logger.info("Processing shovel " + shardNum + " ... sorting");
 
@@ -718,7 +814,7 @@ public class FastSharder <VertexValueType, EdgeValueType> implements EdgeHandler
 
     public void shard(String filename, String format) throws Exception {
         if (format == null || format.equals("edgelist")) {
-	    new MMapReader().readWithMmap(new RandomAccessFile(filename, "r"), this);
+	    new MMapReader().readWithMmap(new RandomAccessFile(filename, "r"), numShards, this);
 	    this.process();
 
 	} else {

@@ -5,7 +5,7 @@ import java.nio.*;
 import java.util.concurrent.*;
 
 public class MMapReader {
-    static private final int EDGES_TO_BUFFER = 100000;
+    static private final int EDGES_TO_BUFFER = 10 * 1024;
 
     static private final byte LF = 10;
     static private final byte CR = 13;
@@ -22,8 +22,10 @@ public class MMapReader {
             }
         };
 
-    static private final ExecutorService executor1 = Executors.newFixedThreadPool(2 * Runtime.getRuntime().availableProcessors(),
-										  threadFactory);
+    static private final int NUM_READERS = 2 * Runtime.getRuntime().availableProcessors();
+
+    static private final ExecutorService executor = Executors.newFixedThreadPool(NUM_READERS,
+										threadFactory);
     //static private final ExecutorService executor2 = Executors.newCachedThreadPool(threadFactory);
 
     public static void unmap(MappedByteBuffer buffer) {
@@ -31,11 +33,11 @@ public class MMapReader {
 	cleaner.clean();
     }
 
-    public void readWithMmap(RandomAccessFile file, EdgeHandler handler) throws Exception {
-	readWithMmap(file, 1024 * 1024 * 1000l, handler);
+    public void readWithMmap(RandomAccessFile file, int numShards, EdgeHandler handler) throws Exception {
+	readWithMmap(file, 1024 * 1024 * 1000l, numShards, handler);
     }
 
-    public void readWithMmap(final RandomAccessFile file, long chunkSize, final EdgeHandler handler) throws Exception {
+    public void readWithMmap(final RandomAccessFile file, long chunkSize, final int numShards, final EdgeHandler handler) throws Exception {
 	long start = System.currentTimeMillis();
 
 	final long fileSize = file.length();
@@ -48,15 +50,21 @@ public class MMapReader {
 	    final long byteStart = chunk * chunkSize;
 	    final long nBytes = Math.min(fileSize, byteStart + chunkSize) - byteStart;
 
-	    executor1.submit(new Runnable() {
+	    executor.submit(new Runnable() {
 		    public void run() {
-			int currentBufIndex = 0;
-			final int[] buf = new int[EDGES_TO_BUFFER * 2];
-			final int[] n = new int[2];
+			int numEdgesProcessed = 0;
+			
+			//System.err.println("CHUNK " + chunk + " " + byteStart + " " + nBytes + " " + fileSize + " " + nChunks);
 
 			try {
-			    //System.err.println("CHUNK " + chunk + " " + byteStart + " " + nBytes + " " + fileSize + " " + nChunks);
+			    int[] currentBufIndex = new int[numShards];
+			    final int[][] buf = new int[numShards][];
+			    final int[] n = new int[2];
 			    
+			    for (int i = 0; i < numShards; i++) {
+				buf[i] = new int[EDGES_TO_BUFFER * 2];
+			    }
+
 			    final MappedByteBuffer buffer = file.getChannel().map(java.nio.channels.FileChannel.MapMode.READ_ONLY, byteStart, nBytes);
 			    
 			    try {
@@ -67,17 +75,27 @@ public class MMapReader {
 				int x = 0;
 				for (int j = 0; j < nBytes; j++) {
 				    byte c = buffer.get();
+
+				    /*if (chunk == 0) System.err.println("ZZZ " + c + " " + (c==LF) + " " + (c==CR)
+								       + " " + (c==SPACE) + " " + (c==HT)
+								       + " " + (c==HASH) + " " + (c-ZERO));*/
 				    
 				    switch (c) {
 				    case LF: case CR:
-					if (!ignoreLine) {
+					if (!ignoreLine && x == 1) {
 					    // System.out.println(n[0] + " " + n[1]);
-					    buf[currentBufIndex] = n[0];
-					    buf[currentBufIndex + 1] = n[1];
-					    currentBufIndex += 2;
-					    if (currentBufIndex >= buf.length) {
-						handler.addEdges(buf, currentBufIndex >>> 1);
-						currentBufIndex = 0;
+					    int from = n[0];
+					    int to = n[1];
+
+					    int shard = to % numShards;
+					    buf[shard][currentBufIndex[shard]] = from;
+					    buf[shard][currentBufIndex[shard] + 1] = to;
+					    currentBufIndex[shard] += 2;
+					    numEdgesProcessed++;
+
+					    if (currentBufIndex[shard] >= buf.length) {
+						handler.addEdges(buf[shard], currentBufIndex[shard], shard);
+						currentBufIndex[shard] = 0;
 					    }
 					}
 					
@@ -104,44 +122,59 @@ public class MMapReader {
 				    }
 				}
 
-				if (currentBufIndex > 0) {
-				    handler.addEdges(buf, currentBufIndex >>> 1);
+				for (int shard = 0; shard < numShards; shard++) {
+				    if (currentBufIndex[shard] > 0) {
+					handler.addEdges(buf[shard], currentBufIndex[shard], shard);
+				    }
 				}
+
+				if (numEdgesProcessed == 0) {
+				    buffer.position(0);
+				    System.err.println("WTF " + buffer.get() + " " + buffer.get() + " " + buffer.get() + " " + buffer.get());
+				}
+
 				
 			    } catch (Exception e) {
+				System.err.println("OOPS " + e.getLocalizedMessage());
 				e.printStackTrace();
 			    } finally {
-				unmap(buffer);
+				try {
+				    unmap(buffer);
+				} catch (Exception e) {
+				    System.err.println("OOPS " + e.getLocalizedMessage());
+				    e.printStackTrace();
+				}
 			    }
 			} catch (Exception e) {
+			    System.err.println("OOPS " + e.getLocalizedMessage());
 			    e.printStackTrace();
-			} finally {
-			    System.err.println("DONE " + chunk + " " + byteStart + " " + nBytes + " " + fileSize + " " + nChunks);
-			}
 
-			latch.countDown();
+			} finally {
+			    System.err.println("DONE " + chunk + " " + numEdgesProcessed + " " + byteStart + " " + nBytes + " " + fileSize + " " + nChunks);
+			    latch.countDown();
+			}
 		    }
 		});
 	}
 
 	latch.await();
 	long end = System.currentTimeMillis();
-	System.err.println("ALL_DONE in " + (end-start) + " milliseconds");
+	System.err.println("ALL_DONE in " + (((double) (end-start)) / 1000d / 60d) + " minutes");
     }
 
     static public final class NullEdgeHandler implements EdgeHandler {
-	public void addEdges(int[] edges, int nEdges) {
+	public void addEdges(int[] edges, int nEdges, int shard) {
 	}
     }
 
     static public void main(String[] args) throws Exception {
 	try {
-	    new MMapReader().readWithMmap(new RandomAccessFile(args[0], "r"), 1024 * 1024 * 1000l, new NullEdgeHandler());
+	    new MMapReader().readWithMmap(new RandomAccessFile(args[0], "r"), 1024 * 1024 * 1000l, 1, new NullEdgeHandler());
 
 	} catch (Exception e) {
 	    e.printStackTrace();
 	} finally {
-	    executor1.shutdownNow();
+	    //executor.shutdownNow();
 	}
     }
 }
