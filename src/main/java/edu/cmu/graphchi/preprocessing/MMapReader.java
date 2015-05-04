@@ -5,7 +5,7 @@ import java.nio.*;
 import java.util.concurrent.*;
 
 public class MMapReader {
-    static private final int EDGES_TO_BUFFER = 10 * 1024;
+    static private final int EDGES_TO_BUFFER = 100 * 1024;
 
     static private final byte LF = 10;
     static private final byte CR = 13;
@@ -93,7 +93,7 @@ public class MMapReader {
 					    currentBufIndex[shard] += 2;
 					    numEdgesProcessed++;
 
-					    if (currentBufIndex[shard] >= buf.length) {
+					    if (currentBufIndex[shard] >= buf[shard].length) {
 						handler.addEdges(buf[shard], currentBufIndex[shard], shard);
 						currentBufIndex[shard] = 0;
 					    }
@@ -128,12 +128,6 @@ public class MMapReader {
 				    }
 				}
 
-				if (numEdgesProcessed == 0) {
-				    buffer.position(0);
-				    System.err.println("WTF " + buffer.get() + " " + buffer.get() + " " + buffer.get() + " " + buffer.get());
-				}
-
-				
 			    } catch (Exception e) {
 				System.err.println("OOPS " + e.getLocalizedMessage());
 				e.printStackTrace();
