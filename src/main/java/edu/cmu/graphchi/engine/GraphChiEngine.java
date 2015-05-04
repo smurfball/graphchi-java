@@ -237,7 +237,7 @@ public class GraphChiEngine <VertexDataType, EdgeDataType> {
         logger.info(":::::::: Using " + nprocs + " execution threads :::::::::");
 
         parallelExecutor = Executors.newFixedThreadPool(nprocs);
-        loadingExecutor = Executors.newFixedThreadPool(4);
+        loadingExecutor = Executors.newFixedThreadPool(/*4*/nprocs);
 
         chiContext.setNumIterations(niters);
 
