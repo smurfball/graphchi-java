@@ -807,8 +807,24 @@ public class FastSharder <VertexValueType, EdgeValueType> implements EdgeHandler
     }
 
 
+    public static boolean allTheSame(byte[] values) {
+	if (values.length > 0) {
+	    byte b = values[0];
+	    for (int i = 1; i < values.length; i++) {
+		if (values[i] != b) {
+		    return false;
+		}
+	    }
+	}
+	return true;
+    }
+
     public static void sortWithValues(long[] shoveled, byte[] edgeValues, int sizeOf) {
-        quickSort(shoveled, edgeValues, sizeOf, 0, shoveled.length - 1);
+	if (edgeValues == null || edgeValues.length == 0 || allTheSame(edgeValues)) {
+	    java.util.Arrays.sort(shoveled);
+	} else {
+	    quickSort(shoveled, edgeValues, sizeOf, 0, shoveled.length - 1);
+	}
     }
 
 
